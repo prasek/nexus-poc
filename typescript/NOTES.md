@@ -9,3 +9,5 @@ curl -XPOST https://example.com/payments/af06ab3d
 //
 curl https://example.com/payments/af06ab3d
 ```
+
+- TODO: Define which metrics we need to add
