@@ -9,7 +9,7 @@
 ```ts
 import { Worker, NexusWorker } from "@temporalio/worker";
 import { ApplicationFailure } from "@temporalio/common";
-import { Request, Response } from "@temporalio/nexus"; // name TBD
+import { StartRequest, StartResponse } from "@temporalio/nexus"; // name TBD
 
 await Worker.create({
   namespace: "foo",
@@ -21,7 +21,11 @@ await Worker.create({
 await NexusWorker.create({
   namespace: "foo",
   service: "calculator",
-  async start({ operation, headers, body }: Request): Promise<Response> {
+  async start({
+    operation,
+    headers,
+    input,
+  }: StartRequest): Promise<StartResponse> {
     // handler is essentially a router.
     if (operation !== "add") {
       // Nexus has a notion of retryable and non-retryable errors.
@@ -33,18 +37,16 @@ await NexusWorker.create({
       throw ApplicationFailure.nonRetryable("Invalid content type");
     }
 
-    const { x, y } = JSON.parse(body);
+    const { x, y } = JSON.parse(input.toString());
     const result = x + y;
 
     return {
       headers: { "Content-Type": "application/json" },
       result: {
-        completed: {
-          succeeded: {
-            // TODO: Decide whether the headers should be close to the body or part of the response object.
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ result }),
-          },
+        succeeded: {
+          // TODO: Decide whether the headers should be close to the body or part of the response object.
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ result }),
         },
       },
     };
@@ -52,46 +54,51 @@ await NexusWorker.create({
 });
 ```
 
-#### Start operation
+#### Start operation - "raw handler"
 
 ```ts
 await NexusWorker.create({
   namespace: "foo",
   service: "payments",
-  async handler({
-    method,
+  async start({
     operation,
     id,
     headers,
-    body,
+    input,
     callbackURL,
-  }: Request): Promise<Response> {
+  }: StartRequest): Promise<StartResponse> {
     if (headers["authorization"] !== "Bearer top-secret") {
       // Later we may add an HTTP gateway in front of Temporal (At a later stage in the project).
       // When we get there, we'll need to support setting the status code (as well as other HTTP specific features) in handlers.
       // HTTP specific data may be delivered in specific response headers.
       throw new ApplicationFailure.nonRetryable("Unauthorized");
     }
-    if (operation === "checkout") {
-      if (!headers["content-type"].startsWith("application/json")) {
-        throw ApplicationFailure.nonRetryable("Invalid content type");
-      }
-      const workflowId = await qualifyOperationId(operation, id, headers);
-
-      const { product } = JSON.parse(body);
-      const handle = await client.workflow.start(workflows.payment, {
-        workflowId,
-        args: [{ customerId, amount }],
-        callbackURL,
-      });
-      return {
-        outcome: {
-          started: {
-            callbackURLSupported: true,
-          },
-        },
-      };
+    if (operation !== "checkout") {
+      throw ApplicationFailure.nonRetryable("Not found");
     }
+    if (!headers["content-type"].startsWith("application/json")) {
+      throw ApplicationFailure.nonRetryable("Invalid content type");
+    }
+    const workflowId = await qualifyOperationId(operation, id, headers);
+    const { product } = JSON.parse(input.toString());
+    const handle = await client.workflow.start(workflows.payment, {
+      workflowId,
+      args: [{ customerId, amount }],
+      callbackURL,
+    });
+    return {
+      result: {
+        started: {
+          callbackURLSupported: true,
+          id,
+        },
+      },
+    };
+  },
+  async cancel({ operation, id, headers }: CancelRequest): Promise<void> {
+    const workflowId = await qualifyOperationId(operation, id, headers);
+    const handle = client.workflow.getHandle(workflowId);
+    await handle.cancel();
   },
 });
 
@@ -101,7 +108,7 @@ async function qualifyOperationId(operation, id, headers) {
   // Option 1 - use client Id directly, qualified for multi-tenancy
   return qualifiedId;
   // Option 2 - use a persistent mapping (e.g. when operation is backed by an update and requires two identifiers to
-  address).
+  // address).
   return await getClientToHandlerIdMappingFromTemporal(qualifiedId);
 }
 ```
@@ -111,12 +118,12 @@ async function qualifyOperationId(operation, id, headers) {
 // TODO: complete me
 
 ```ts
-async function handler({
+async function start({
   method,
   operation,
   headers,
   body,
-}: Request): Promise<Response> {
+}: StartRequest): Promise<Response> {
   const { service, operation, headers, body } = request;
   // This seems redunant in the Temporal context but handler is Temporal agnostic.
   const payload = { data: body, metadata: headers };
