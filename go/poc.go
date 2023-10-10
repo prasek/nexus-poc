@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/nexus-rpc/sdk-go/nexus"
+	"go.temporal.io/api/workflowservice/v1"
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporalnexus"
 	"go.temporal.io/sdk/worker"
@@ -58,9 +61,11 @@ var startWorkflowOp = temporalnexus.NewWorkflowRunOperation("provision-cell", te
 })
 
 var queryOp = temporalnexus.NewSyncOperation("get-cell-status", func(ctx context.Context, c client.Client, input MyInput) (MyOutput, error) {
-	payload, _ := c.QueryWorkflow(ctx, constructID(ctx, "provision-cell", input.CellID), "", "get-cell-status")
-	var output MyOutput
-	return output, payload.Get(&output)
+	fmt.Println("got it!")
+	return MyOutput{}, nil
+	// payload, _ := c.QueryWorkflow(ctx, constructID(ctx, "provision-cell", input.CellID), "", "get-cell-status")
+	// var output MyOutput
+	// return output, payload.Get(&output)
 })
 
 var signalOp = temporalnexus.NewSyncOperation("set-cell-status", func(ctx context.Context, c client.Client, input MyInput) (nexus.NoResult, error) {
@@ -75,6 +80,7 @@ var startWorkflowWithMapperOp = nexus.WithMapper[MyInput, MyOutput, MyOutput, My
 )
 
 func main() {
+	ctx := context.TODO()
 	c, err := client.Dial(client.Options{
 		HostPort:  "localhost:7233",
 		Namespace: "default",
@@ -82,21 +88,67 @@ func main() {
 	if err != nil {
 		log.Panic(err)
 	}
+	rp := time.Hour * 24
+	c.WorkflowService().RegisterNamespace(ctx, &workflowservice.RegisterNamespaceRequest{
+		Namespace:                        "default",
+		WorkflowExecutionRetentionPeriod: &rp,
+	})
+	// if 1 == 1 {
+	// 	return
+	// }
+	ctx, cancel := context.WithTimeout(ctx, time.Second*3)
+	defer cancel()
 
-	w := worker.New(c, "my-task-queue", worker.Options{})
-	w.RegisterOperation(startWorkflowSimple)
-	w.RegisterOperation(startWorkflowWithMapperOp)
-	w.RegisterOperation(queryOp)
-	w.RegisterOperation(signalOp)
+	w := worker.New(c, "my-task-queue", worker.Options{
+		NexusOperations: []nexus.UntypedOperationHandler{
+			startWorkflowSimple,
+			startWorkflowWithMapperOp,
+			queryOp,
+			signalOp,
+		},
+	})
 	w.RegisterWorkflow(MyCallerWorkflow)
 	w.RegisterWorkflow(MyHandlerWorkflow)
+	w.RegisterActivityWithOptions(func(ctx context.Context, input any) (any, error) {
+		nc, err := nexus.NewClient(nexus.ClientOptions{ServiceBaseURL: "http://localhost:7253/foo"})
+		if err != nil {
+			return nil, err
+		}
+		codec := nexus.JSONCodec{}
+		message, err := codec.ToMessage(input)
+		if err != nil {
+			return nil, err
+		}
+		response, err := nc.ExecuteOperation(context.TODO(), nexus.ExecuteOperationOptions{
+			Operation: queryOp.Name,
+			Header:    message.Header,
+			Body:      message.Body,
+		})
+		if err != nil {
+			return nil, err
+		}
+		defer response.Body.Close()
+		var out MyOutput // TODO: this is just generic JSON
+		err = codec.FromMessage(&nexus.Message{Header: response.Header, Body: response.Body}, &out)
+		return out, err
+	}, activity.RegisterOptions{
+		Name: "start-operation",
+	})
 	w.Start()
 	defer w.Stop()
 
-	c.ExecuteWorkflow(context.Background(), client.StartWorkflowOptions{
-		TaskQueue: "my-task-queue",
-	}, MyCallerWorkflow)
-
+	time.Sleep(time.Second * 5)
+	// run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+	// 	TaskQueue: "my-task-queue",
+	// }, MyCallerWorkflow)
+	// if err != nil {
+	// 	log.Panic(err)
+	// }
+	// var out MyOutput
+	// err = run.Get(context.Background(), &out)
+	// if err != nil {
+	// 	log.Panic(err)
+	// }
 }
 
 type tenantIDKey struct{}
