@@ -31,15 +31,13 @@ func MyHandlerWorkflow(ctx workflow.Context, input MyInput) (MyOutput, error) {
 }
 
 func MyCallerWorkflow(ctx workflow.Context) (MyOutput, error) {
-	handle, _ := workflow.StartOperation(ctx, startWorkflowOp, MyInput{})
-	_ = handle.WaitStarted(ctx)
-	_, _ = workflow.StartOperation(ctx, startWorkflowWithMapperOp, MyInput{})
-	_, _ = workflow.StartOperation(ctx, queryOp, MyInput{})
-	_, _ = workflow.StartNamedOperation[MyInput, MyOutput](ctx, "some-op", MyInput{})
-	voidHandle, _ := workflow.StartVoidOperation(ctx, signalOp, MyInput{})
-	_ = voidHandle.WaitStarted(ctx)
-	_ = voidHandle.WaitCompleted(ctx)
-	_, _ = workflow.StartNamedVoidOperation(ctx, "some-op", MyInput{})
+	// handle, _ := workflow.StartOperation(ctx, startWorkflowOp, MyInput{})
+	// _ = handle.WaitStarted(ctx)
+	// _, _ = workflow.StartOperation(ctx, startWorkflowWithMapperOp, MyInput{})
+	handle, err := workflow.StartOperation(ctx, queryOp, MyInput{})
+	if err != nil {
+		return MyOutput{}, nil
+	}
 	return handle.GetResult(ctx)
 }
 
