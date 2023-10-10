@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"time"
 
@@ -52,6 +53,7 @@ var startWorkflowSimple = temporalnexus.NewWorkflowRunOperation("provision-cell-
 
 var startWorkflowOp = temporalnexus.NewWorkflowRunOperation("provision-cell", temporalnexus.WorkflowRunOptions[MyInput, MyOutput]{
 	Start: func(ctx context.Context, c client.Client, input MyInput) (temporalnexus.WorkflowHandle[MyOutput], error) {
+		fmt.Println("Starting workflow")
 		return temporalnexus.StartWorkflow(ctx, c, client.StartWorkflowOptions{
 			ID: constructID(ctx, "provision-cell", input.CellID),
 		}, MyHandlerWorkflow, input)
@@ -59,7 +61,7 @@ var startWorkflowOp = temporalnexus.NewWorkflowRunOperation("provision-cell", te
 })
 
 var queryOp = temporalnexus.NewSyncOperation("get-cell-status", func(ctx context.Context, c client.Client, input MyInput) (MyOutput, error) {
-	fmt.Println("got it!")
+	fmt.Println("Callback called!")
 	return MyOutput{}, nil
 	// payload, _ := c.QueryWorkflow(ctx, constructID(ctx, "provision-cell", input.CellID), "", "get-cell-status")
 	// var output MyOutput
@@ -91,9 +93,6 @@ func main() {
 		Namespace:                        "default",
 		WorkflowExecutionRetentionPeriod: &rp,
 	})
-	// if 1 == 1 {
-	// 	return
-	// }
 	ctx, cancel := context.WithTimeout(ctx, time.Second*3)
 	defer cancel()
 
@@ -117,44 +116,60 @@ func main() {
 		if err != nil {
 			return nil, err
 		}
-		response, err := nc.ExecuteOperation(context.TODO(), nexus.ExecuteOperationOptions{
-			Operation: queryOp.Name,
-			Header:    message.Header,
-			Body:      message.Body,
+		u, err := url.Parse("http://localhost:7253/system/callback")
+		ai := activity.GetInfo(ctx)
+		q := u.Query()
+		q.Add("workflow_id", ai.WorkflowExecution.ID)
+		// TODO: get the ID
+		q.Add("signal_name", fmt.Sprintf("operation-%v", 1))
+		u.RawQuery = q.Encode()
+		if err != nil {
+			return nil, err
+		}
+		response, err := nc.StartOperation(context.TODO(), nexus.StartOperationOptions{
+			Operation:   startWorkflowOp.Name,
+			Header:      message.Header,
+			Body:        message.Body,
+			CallbackURL: u.String(),
 		})
 		if err != nil {
 			return nil, err
 		}
-		defer response.Body.Close()
-		var out MyOutput // TODO: this is just generic JSON
-		err = codec.FromMessage(&nexus.Message{Header: response.Header, Body: response.Body}, &out)
-		return out, err
+		// TODO: need some way to indicate which response type we got
+		if response.Successful != nil {
+			defer response.Successful.Body.Close()
+			var out any
+			err = codec.FromMessage(&nexus.Message{Header: response.Successful.Header, Body: response.Successful.Body}, &out)
+			return out, err
+		}
+		return response.Pending.ID, nil
+
 	}, activity.RegisterOptions{
 		Name: "start-operation",
 	})
 	w.Start()
 	defer w.Stop()
 
-	time.Sleep(time.Second * 5)
-	// run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
-	// 	TaskQueue: "my-task-queue",
-	// }, MyCallerWorkflow)
-	// if err != nil {
-	// 	log.Panic(err)
-	// }
-	// var out MyOutput
-	// err = run.Get(context.Background(), &out)
-	// if err != nil {
-	// 	log.Panic(err)
-	// }
+	run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		TaskQueue: "my-task-queue",
+	}, MyCallerWorkflow)
+	if err != nil {
+		log.Panic(err)
+	}
+	var out MyOutput
+	err = run.Get(context.Background(), &out)
+	if err != nil {
+		log.Panic(err)
+	}
 }
 
 type tenantIDKey struct{}
 
 func constructID(ctx context.Context, operation string, parts ...string) string {
-	tenantID := ctx.Value(tenantIDKey{}).(string)
+	// tenantID := ctx.Value(tenantIDKey{}).(string)
 
-	return operation + "-" + tenantID + "-" + strings.Join(parts, "-")
+	// return operation + "-" + tenantID + "-" + strings.Join(parts, "-")
+	return operation + "-" + strings.Join(parts, "-")
 }
 
 func hashSource(s string) string {
