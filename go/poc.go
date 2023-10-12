@@ -32,24 +32,31 @@ func MyHandlerWorkflow(ctx workflow.Context, input MyInput) (MyOutput, error) {
 }
 
 func MyCallerWorkflow(ctx workflow.Context) (MyOutput, error) {
-	// handle, _ := workflow.StartOperation(ctx, startWorkflowOp, MyInput{})
+	handle, err := workflow.StartOperation(ctx, "foo", queryOp, MyInput{}, workflow.OperationOptions{})
+	if err != nil {
+		return MyOutput{}, nil
+	}
+	err = handle.WaitStarted(ctx)
+	if err != nil {
+		return MyOutput{}, nil
+	}
+	qOut, err := handle.GetResult(ctx)
+	if err != nil {
+		return MyOutput{}, nil
+	}
+	workflow.GetLogger(ctx).Info("got query output", "qout", qOut)
+	handle, err = workflow.StartOperation(ctx, "foo", startWorkflowOp, MyInput{CellID: "abc"}, workflow.OperationOptions{})
 	// _ = handle.WaitStarted(ctx)
 	// _, _ = workflow.StartOperation(ctx, startWorkflowWithMapperOp, MyInput{})
-	handle, err := workflow.StartOperation(ctx, queryOp, MyInput{})
+	if err != nil {
+		return MyOutput{}, nil
+	}
+	err = handle.WaitStarted(ctx)
 	if err != nil {
 		return MyOutput{}, nil
 	}
 	return handle.GetResult(ctx)
 }
-
-var startWorkflowSimple = temporalnexus.NewWorkflowRunOperation("provision-cell-simple", temporalnexus.WorkflowRunOptions[MyInput, MyOutput]{
-	Workflow: MyHandlerWorkflow,
-	GetOptions: func(ctx context.Context, input MyInput) (client.StartWorkflowOptions, error) {
-		return client.StartWorkflowOptions{
-			ID: constructID(ctx, "provision-cell", input.CellID),
-		}, nil
-	},
-})
 
 var startWorkflowOp = temporalnexus.NewWorkflowRunOperation("provision-cell", temporalnexus.WorkflowRunOptions[MyInput, MyOutput]{
 	Start: func(ctx context.Context, c client.Client, input MyInput) (temporalnexus.WorkflowHandle[MyOutput], error) {
@@ -60,8 +67,16 @@ var startWorkflowOp = temporalnexus.NewWorkflowRunOperation("provision-cell", te
 	},
 })
 
+var startWorkflowSimple = temporalnexus.NewWorkflowRunOperation("provision-cell-simple", temporalnexus.WorkflowRunOptions[MyInput, MyOutput]{
+	Workflow: MyHandlerWorkflow,
+	GetOptions: func(ctx context.Context, input MyInput) (client.StartWorkflowOptions, error) {
+		return client.StartWorkflowOptions{
+			ID: constructID(ctx, "provision-cell", input.CellID),
+		}, nil
+	},
+})
+
 var queryOp = temporalnexus.NewSyncOperation("get-cell-status", func(ctx context.Context, c client.Client, input MyInput) (MyOutput, error) {
-	fmt.Println("Callback called!")
 	return MyOutput{}, nil
 	// payload, _ := c.QueryWorkflow(ctx, constructID(ctx, "provision-cell", input.CellID), "", "get-cell-status")
 	// var output MyOutput
