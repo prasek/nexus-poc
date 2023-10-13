@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -190,4 +191,5 @@ func main() {
 	if err != nil {
 		log.Panic(err)
 	}
+	fmt.Println("done:", out)
 }
