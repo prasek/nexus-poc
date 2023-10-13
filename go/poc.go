@@ -26,9 +26,6 @@ type CreateCellOutput struct {
 	CellID string
 }
 
-type MyIntermediateOutput struct{}
-type MyMappedOutput struct{}
-
 func MyHandlerWorkflow(ctx workflow.Context, input CreateCellInput) (*CreateCellOutput, error) {
 	workflow.SetQueryHandler(ctx, "get-cell-status", func() (string, error) {
 		return "running", nil

@@ -6,6 +6,8 @@ import (
 	"github.com/nexus-rpc/sdk-go/nexus"
 )
 
+type MyMappedOutput struct{}
+
 var startWorkflowWithMapperOp = nexus.WithMapper(
 	startWorkflowOp,
 	func(ctx context.Context, mo *CreateCellOutput, uoe *nexus.UnsuccessfulOperationError) (MyMappedOutput, *nexus.UnsuccessfulOperationError, error) {
