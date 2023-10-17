@@ -6,6 +6,7 @@ toolchain go1.21.1
 
 require (
 	github.com/nexus-rpc/sdk-go v0.0.1
+	go.temporal.io/api v1.24.1-0.20231012201728-a472e79c46c9
 	go.temporal.io/sdk v0.0.1
 )
 
@@ -26,7 +27,6 @@ require (
 	github.com/robfig/cron v1.2.0 // indirect
 	github.com/stretchr/objx v0.5.0 // indirect
 	github.com/stretchr/testify v1.8.4 // indirect
-	go.temporal.io/api v1.21.0 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	golang.org/x/net v0.15.0 // indirect
 	golang.org/x/sys v0.12.0 // indirect
