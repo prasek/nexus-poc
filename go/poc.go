@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/nexus-rpc/sdk-go/nexus"
@@ -97,35 +100,77 @@ var signalOp = temporalnexus.NewSyncOperation("resume-provisioning", func(ctx co
 	return nil, c.SignalWorkflow(ctx, "provision-cell-"+cellID, "", "resume", nil)
 })
 
-func setup(ctx context.Context) (client.Client, client.Client) {
+func setupClients() (client.Client, client.Client) {
+	clientCert := "/Users/bergundy/temporal/cloud-certs/nexus-client.pem"
+	clientKey := "/Users/bergundy/temporal/cloud-certs/nexus-client.key"
+	// Load client cert
+	cert, err := tls.LoadX509KeyPair(clientCert, clientKey)
+	if err != nil {
+		log.Panic(err)
+	}
 	callerClient, err := client.Dial(client.Options{
-		HostPort:  "localhost:7233",
-		Namespace: "caller",
+		HostPort:  "nexus-poc-caller.temporal-dev.tmprl-test.cloud:7233",
+		Namespace: "nexus-poc-caller.temporal-dev",
+		ConnectionOptions: client.ConnectionOptions{
+			TLS: &tls.Config{
+				Certificates: []tls.Certificate{cert},
+				ServerName:   "nexus-poc-caller.temporal-dev.tmprl-test.cloud",
+			},
+		},
 	})
 	if err != nil {
 		log.Panic(err)
 	}
 
 	handlerClient, err := client.Dial(client.Options{
+		HostPort:  "nexus-poc-handler.temporal-dev.tmprl-test.cloud:7233",
+		Namespace: "nexus-poc-handler.temporal-dev",
+		ConnectionOptions: client.ConnectionOptions{
+			TLS: &tls.Config{
+				Certificates: []tls.Certificate{cert},
+				ServerName:   "nexus-poc-handler.temporal-dev.tmprl-test.cloud",
+			},
+		},
+	})
+	if err != nil {
+		log.Panic(err)
+	}
+	return callerClient, handlerClient
+}
+
+func setupEnv(ctx context.Context) {
+	clientCert := "/Users/bergundy/temporal/cloud-certs/internode.crt"
+	clientKey := "/Users/bergundy/temporal/cloud-certs/internode.key"
+	serverRootCACert := "/Users/bergundy/temporal/cloud-certs/internode-ca.crt"
+
+	cert, err := tls.LoadX509KeyPair(clientCert, clientKey)
+	if err != nil {
+		log.Panic(err)
+	}
+	serverCAPool := x509.NewCertPool()
+	b, err := os.ReadFile(serverRootCACert)
+	if err != nil {
+		log.Panic("failed reading server CA:", err)
+	} else if !serverCAPool.AppendCertsFromPEM(b) {
+		log.Panic("server CA PEM file invalid")
+	}
+	adminClient, err := client.Dial(client.Options{
 		HostPort:  "localhost:7233",
-		Namespace: "handler",
+		Namespace: "nexus-poc-caller.temporal-dev",
+		ConnectionOptions: client.ConnectionOptions{
+			TLS: &tls.Config{
+				Certificates: []tls.Certificate{cert},
+				ServerName:   "frontend.temporal.svc.cluster.local",
+				RootCAs:      serverCAPool,
+			},
+		},
 	})
 	if err != nil {
 		log.Panic(err)
 	}
 
-	retention := time.Hour * 24
-	callerClient.WorkflowService().RegisterNamespace(ctx, &workflowservice.RegisterNamespaceRequest{
-		Namespace:                        "caller",
-		WorkflowExecutionRetentionPeriod: &retention,
-	})
-	callerClient.WorkflowService().RegisterNamespace(ctx, &workflowservice.RegisterNamespaceRequest{
-		Namespace:                        "handler",
-		WorkflowExecutionRetentionPeriod: &retention,
-	})
-
-	_, err = callerClient.WorkflowService().UpdateNamespace(ctx, &workflowservice.UpdateNamespaceRequest{
-		Namespace: "caller",
+	_, err = adminClient.WorkflowService().UpdateNamespace(ctx, &workflowservice.UpdateNamespaceRequest{
+		Namespace: "nexus-poc-caller.temporal-dev",
 		UpdateInfo: &namespace.UpdateNamespaceInfo{
 			OutgoingServiceUpdates: []*namespace.OutgoingServiceUpdate{
 				{Variant: &namespace.OutgoingServiceUpdate_CreateOrUpdateService_{
@@ -140,17 +185,16 @@ func setup(ctx context.Context) (client.Client, client.Client) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	_, err = callerClient.OperatorService().CreateOrUpdateNexusIncomingService(ctx, &operatorservice.CreateOrUpdateNexusIncomingServiceRequest{
+	_, err = adminClient.OperatorService().CreateOrUpdateNexusIncomingService(ctx, &operatorservice.CreateOrUpdateNexusIncomingServiceRequest{
 		NexusIncomingService: &operatorservice.NexusIncomingService{
 			Name:      serviceName,
-			Namespace: "handler",
+			Namespace: "nexus-poc-handler.temporal-dev",
 			TaskQueue: "my-handler-queue",
 		},
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	return callerClient, handlerClient
 }
 
 func startHandler(c client.Client) worker.Worker {
@@ -171,7 +215,8 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.TODO(), time.Second*3)
 	defer cancel()
 
-	callerClient, handlerClient := setup(ctx)
+	// setupEnv(ctx)
+	callerClient, handlerClient := setupClients()
 	handlerWorker := startHandler(handlerClient)
 	defer handlerWorker.Stop()
 
