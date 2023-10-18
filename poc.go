@@ -2,17 +2,12 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"log"
 	"os"
 	"time"
 
 	"github.com/nexus-rpc/sdk-go/nexus"
-	"go.temporal.io/api/namespace/v1"
-	"go.temporal.io/api/operatorservice/v1"
-	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporalnexus"
 	"go.temporal.io/sdk/worker"
@@ -97,110 +92,14 @@ var queryOp = temporalnexus.NewSyncOperation("get-cell-status", func(ctx context
 })
 
 var signalOp = temporalnexus.NewSyncOperation("resume-provisioning", func(ctx context.Context, c client.Client, cellID string) (nexus.Void, error) {
+	// TODO: signal request should use Nexus request ID
 	return nil, c.SignalWorkflow(ctx, "provision-cell-"+cellID, "", "resume", nil)
 })
-
-func setupClients() (client.Client, client.Client) {
-	clientCert := "/Users/bergundy/temporal/cloud-certs/nexus-client.pem"
-	clientKey := "/Users/bergundy/temporal/cloud-certs/nexus-client.key"
-	// Load client cert
-	cert, err := tls.LoadX509KeyPair(clientCert, clientKey)
-	if err != nil {
-		log.Panic(err)
-	}
-	callerClient, err := client.Dial(client.Options{
-		HostPort:  "nexus-poc-caller.temporal-dev.tmprl-test.cloud:7233",
-		Namespace: "nexus-poc-caller.temporal-dev",
-		ConnectionOptions: client.ConnectionOptions{
-			TLS: &tls.Config{
-				Certificates: []tls.Certificate{cert},
-				ServerName:   "nexus-poc-caller.temporal-dev.tmprl-test.cloud",
-			},
-		},
-	})
-	if err != nil {
-		log.Panic(err)
-	}
-
-	handlerClient, err := client.Dial(client.Options{
-		HostPort:  "nexus-poc-handler.temporal-dev.tmprl-test.cloud:7233",
-		Namespace: "nexus-poc-handler.temporal-dev",
-		ConnectionOptions: client.ConnectionOptions{
-			TLS: &tls.Config{
-				Certificates: []tls.Certificate{cert},
-				ServerName:   "nexus-poc-handler.temporal-dev.tmprl-test.cloud",
-			},
-		},
-	})
-	if err != nil {
-		log.Panic(err)
-	}
-	return callerClient, handlerClient
-}
-
-func setupEnv(ctx context.Context) {
-	clientCert := "/Users/bergundy/temporal/cloud-certs/internode.crt"
-	clientKey := "/Users/bergundy/temporal/cloud-certs/internode.key"
-	serverRootCACert := "/Users/bergundy/temporal/cloud-certs/internode-ca.crt"
-
-	cert, err := tls.LoadX509KeyPair(clientCert, clientKey)
-	if err != nil {
-		log.Panic(err)
-	}
-	serverCAPool := x509.NewCertPool()
-	b, err := os.ReadFile(serverRootCACert)
-	if err != nil {
-		log.Panic("failed reading server CA:", err)
-	} else if !serverCAPool.AppendCertsFromPEM(b) {
-		log.Panic("server CA PEM file invalid")
-	}
-	adminClient, err := client.Dial(client.Options{
-		HostPort:  "localhost:7233",
-		Namespace: "nexus-poc-caller.temporal-dev",
-		ConnectionOptions: client.ConnectionOptions{
-			TLS: &tls.Config{
-				Certificates: []tls.Certificate{cert},
-				ServerName:   "frontend.temporal.svc.cluster.local",
-				RootCAs:      serverCAPool,
-			},
-		},
-	})
-	if err != nil {
-		log.Panic(err)
-	}
-
-	_, err = adminClient.WorkflowService().UpdateNamespace(ctx, &workflowservice.UpdateNamespaceRequest{
-		Namespace: "nexus-poc-caller.temporal-dev",
-		UpdateInfo: &namespace.UpdateNamespaceInfo{
-			OutgoingServiceUpdates: []*namespace.OutgoingServiceUpdate{
-				{Variant: &namespace.OutgoingServiceUpdate_CreateOrUpdateService_{
-					CreateOrUpdateService: &namespace.OutgoingServiceUpdate_CreateOrUpdateService{
-						Name:    serviceName,
-						BaseUrl: "http://localhost:7253/" + serviceName,
-					},
-				}},
-			},
-		},
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	_, err = adminClient.OperatorService().CreateOrUpdateNexusIncomingService(ctx, &operatorservice.CreateOrUpdateNexusIncomingServiceRequest{
-		NexusIncomingService: &operatorservice.NexusIncomingService{
-			Name:      serviceName,
-			Namespace: "nexus-poc-handler.temporal-dev",
-			TaskQueue: "my-handler-queue",
-		},
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-}
 
 func startHandler(c client.Client) worker.Worker {
 	w := worker.New(c, "my-handler-queue", worker.Options{
 		NexusOperations: []nexus.UntypedOperationHandler{
-			// startWorkflowOp,
+			// startWorkflowOp, equivalent to startWorkflowSimple below
 			startWorkflowSimple,
 			queryOp,
 			signalOp,
@@ -215,8 +114,12 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.TODO(), time.Second*3)
 	defer cancel()
 
-	// setupEnv(ctx)
-	callerClient, handlerClient := setupClients()
+	opts := getOptions(os.Args[1:])
+	if !opts.skipEnvSetup {
+		setupEnv(ctx, opts)
+	}
+
+	callerClient, handlerClient := createClients(opts)
 	handlerWorker := startHandler(handlerClient)
 	defer handlerWorker.Stop()
 

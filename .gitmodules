@@ -1,0 +1,9 @@
+[submodule "nexus-sdk-go"]
+	path = nexus-sdk-go
+	url = https://github.com/bergundy/nexus-sdk-go
+[submodule "temporal-sdk-go"]
+	path = temporal-sdk-go
+	url = https://github.com/bergundy/temporal-sdk-go
+[submodule "temporal-api"]
+	path = temporal-api-go
+	url = https://github.com/temporalio/api-go

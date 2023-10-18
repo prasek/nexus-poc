@@ -40,8 +40,8 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/nexus-rpc/sdk-go => ../../nexus-sdk-go
+replace github.com/nexus-rpc/sdk-go => ./nexus-sdk-go
 
-replace go.temporal.io/sdk => ../../sdk-go
+replace go.temporal.io/sdk => ./temporal-sdk-go
 
-replace go.temporal.io/api => ../../api-go
+replace go.temporal.io/api => ./temporal-api-go
