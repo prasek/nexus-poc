@@ -30,6 +30,8 @@ git submodule update
 
 ### Cloud
 
+Obtain the nexus-poc-client.key and pem from 1password and run:
+
 ```
 go run . -cloud -certs-dir <path-to-certs-dir> -skip-env-setup # optional
 ```
