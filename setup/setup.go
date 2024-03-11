@@ -1,4 +1,4 @@
-package main
+package setup
 
 import (
 	"context"
@@ -17,22 +17,22 @@ import (
 	"go.temporal.io/sdk/client"
 )
 
-type options struct {
-	cloud            bool
-	certsDir         string
-	skipEnvSetup     bool
-	callerNamespace  string
-	handlerNamespace string
+type Options struct {
+	Cloud            bool
+	CertsDir         string
+	SkipEnvSetup     bool
+	CallerNamespace  string
+	HandlerNamespace string
 }
 
-func getOptions(args []string) options {
-	var opts options
+func GetOptions(args []string) Options {
+	var opts Options
 	set := flag.NewFlagSet("nexus-poc", flag.ExitOnError)
-	set.BoolVar(&opts.cloud, "cloud", false, "Run on cloud (default local)")
-	set.StringVar(&opts.certsDir, "certs-dir", "/Users/bergundy/temporal/cloud-certs", "Run on cloud (default local)")
-	set.BoolVar(&opts.skipEnvSetup, "skip-env-setup", false, "Skip env setup (namespace and service registration)")
-	set.StringVar(&opts.callerNamespace, "caller-namespace", "nexus-poc-caller.temporal-dev", "Caller namespace (in cloud this should include the account ID)")
-	set.StringVar(&opts.handlerNamespace, "handler-namespace", "nexus-poc-handler.temporal-dev", "Handler namespace (in cloud this should include the account ID)")
+	set.BoolVar(&opts.Cloud, "cloud", false, "Run on cloud (default local)")
+	set.StringVar(&opts.CertsDir, "certs-dir", "/Users/bergundy/temporal/cloud-certs", "Run on cloud (default local)")
+	set.BoolVar(&opts.SkipEnvSetup, "skip-env-setup", false, "Skip env setup (namespace and service registration)")
+	set.StringVar(&opts.CallerNamespace, "caller-namespace", "nexus-poc-caller.temporal-dev", "Caller namespace (in cloud this should include the account ID)")
+	set.StringVar(&opts.HandlerNamespace, "handler-namespace", "nexus-poc-handler.temporal-dev", "Handler namespace (in cloud this should include the account ID)")
 
 	if err := set.Parse(args); err != nil {
 		log.Panic("failed parsing args:", err)
@@ -40,9 +40,9 @@ func getOptions(args []string) options {
 	return opts
 }
 
-func createAdminClient(opts options) client.Client {
-	if opts.cloud {
-		return createCloudAdminClient(opts.certsDir)
+func createAdminClient(opts Options) client.Client {
+	if opts.Cloud {
+		return createCloudAdminClient(opts.CertsDir)
 	}
 	adminClient, err := client.Dial(client.Options{
 		HostPort:  "localhost:7233",
@@ -88,13 +88,13 @@ func createCloudAdminClient(certsDir string) client.Client {
 	return adminClient
 }
 
-func createClients(opts options) (client.Client, client.Client) {
-	if opts.cloud {
+func CreateClients(opts Options) (client.Client, client.Client) {
+	if opts.Cloud {
 		return createCloudClients(opts)
 	}
 	callerClient, err := client.Dial(client.Options{
 		HostPort:  "localhost:7233",
-		Namespace: opts.callerNamespace,
+		Namespace: opts.CallerNamespace,
 	})
 	if err != nil {
 		log.Panic(err)
@@ -102,7 +102,7 @@ func createClients(opts options) (client.Client, client.Client) {
 
 	handlerClient, err := client.Dial(client.Options{
 		HostPort:  "localhost:7233",
-		Namespace: opts.handlerNamespace,
+		Namespace: opts.HandlerNamespace,
 	})
 	if err != nil {
 		log.Panic(err)
@@ -110,21 +110,21 @@ func createClients(opts options) (client.Client, client.Client) {
 	return callerClient, handlerClient
 }
 
-func createCloudClients(opts options) (client.Client, client.Client) {
-	clientCert := filepath.Join(opts.certsDir, "nexus-client.pem")
-	clientKey := filepath.Join(opts.certsDir, "nexus-client.key")
+func createCloudClients(opts Options) (client.Client, client.Client) {
+	clientCert := filepath.Join(opts.CertsDir, "nexus-client.pem")
+	clientKey := filepath.Join(opts.CertsDir, "nexus-client.key")
 	// Load client cert
 	cert, err := tls.LoadX509KeyPair(clientCert, clientKey)
 	if err != nil {
 		log.Panic(err)
 	}
 	callerClient, err := client.Dial(client.Options{
-		HostPort:  fmt.Sprintf("%s.tmprl-test.cloud:7233", opts.callerNamespace),
-		Namespace: opts.callerNamespace,
+		HostPort:  fmt.Sprintf("%s.tmprl-test.cloud:7233", opts.CallerNamespace),
+		Namespace: opts.CallerNamespace,
 		ConnectionOptions: client.ConnectionOptions{
 			TLS: &tls.Config{
 				Certificates: []tls.Certificate{cert},
-				ServerName:   fmt.Sprintf("%s.tmprl-test.cloud", opts.callerNamespace),
+				ServerName:   fmt.Sprintf("%s.tmprl-test.cloud", opts.CallerNamespace),
 			},
 		},
 	})
@@ -133,12 +133,12 @@ func createCloudClients(opts options) (client.Client, client.Client) {
 	}
 
 	handlerClient, err := client.Dial(client.Options{
-		HostPort:  fmt.Sprintf("%s.tmprl-test.cloud:7233", opts.handlerNamespace),
-		Namespace: opts.handlerNamespace,
+		HostPort:  fmt.Sprintf("%s.tmprl-test.cloud:7233", opts.HandlerNamespace),
+		Namespace: opts.HandlerNamespace,
 		ConnectionOptions: client.ConnectionOptions{
 			TLS: &tls.Config{
 				Certificates: []tls.Certificate{cert},
-				ServerName:   fmt.Sprintf("%s.tmprl-test.cloud", opts.handlerNamespace),
+				ServerName:   fmt.Sprintf("%s.tmprl-test.cloud", opts.HandlerNamespace),
 			},
 		},
 	})
@@ -148,9 +148,9 @@ func createCloudClients(opts options) (client.Client, client.Client) {
 	return callerClient, handlerClient
 }
 
-func setupEnv(ctx context.Context, opts options) {
+func SetupEnv(ctx context.Context, opts Options, serviceName string) {
 	adminClient := createAdminClient(opts)
-	if !opts.cloud {
+	if !opts.Cloud {
 		// Create the namespaces in the local cluster.
 		// In cloud those need to be created with internal admin APIs and placed so they're placed on the PoC cluster.
 
