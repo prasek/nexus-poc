@@ -35,5 +35,4 @@ func main() {
 	if err != nil {
 		log.Fatalln("unable to start callee worker")
 	}
-
 }

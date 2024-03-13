@@ -6,30 +6,25 @@ import (
 )
 
 func MyCallerWorkflow(ctx workflow.Context) (*api.CreateCellOutput, error) {
-	cellID := "s-nexus"
-	input := api.CreateCellInput{CellID: cellID, Nexusness: 100}
-	startHandle, err := workflow.StartOperation(ctx, api.ServiceName, api.StartWorkflowOp, input, workflow.OperationOptions{})
+	callee := NewCalleeWorkflowClient(ctx)
+
+	input := api.CreateCellInput{CellID: "r-nexus", Nexusness: 100}
+	startHandle, err := callee.StartProvisionCell(input)
 	if err != nil {
 		return nil, err
 	}
-	if err = startHandle.WaitStarted(ctx); err != nil {
-		return nil, err
-	}
-	queryHandle, err := workflow.StartOperation(ctx, api.ServiceName, api.QueryOp, cellID, workflow.OperationOptions{})
+
+	status, err := callee.GetCellStatus(input.CellID)
 	if err != nil {
 		return nil, err
 	}
-	qOut, err := queryHandle.GetResult(ctx)
+
+	workflow.GetLogger(ctx).Info("got cell status", "status", status)
+
+	err = callee.ResumeProvisioning(input.CellID)
 	if err != nil {
 		return nil, err
 	}
-	workflow.GetLogger(ctx).Info("got cell status", "status", qOut)
-	signalHandle, err := workflow.StartOperation(ctx, api.ServiceName, api.SignalOp, cellID, workflow.OperationOptions{})
-	if err != nil {
-		return nil, err
-	}
-	if _, err := signalHandle.GetResult(ctx); err != nil {
-		return nil, err
-	}
+
 	return startHandle.GetResult(ctx)
 }
