@@ -20,11 +20,11 @@ type CreateCellOutput struct {
 }
 
 var StartWorkflowOp1 = NewWorkflowRunOperation("provision-cell", MyCalleeWorkflow,
-	func(ctx context.Context, input CreateCellInput) (client.StartWorkflowOptions, error) {
+	func(input CreateCellInput) client.StartWorkflowOptions {
 		options := client.StartWorkflowOptions{
 			ID: "provision-cell-" + input.CellID,
 		}
-		return options, nil
+		return options
 	},
 )
 
@@ -34,11 +34,11 @@ var StartWorkflowOp1 = NewWorkflowRunOperation("provision-cell", MyCalleeWorkflo
 var StartWorkflowOpRef = OperationRef[CreateCellInput, *CreateCellOutput]("provision-cell")
 
 var StartWorkflowOp2 = NewWorkflowRunOperation(StartWorkflowOpRef, MyCalleeWorkflow,
-	func(ctx context.Context, input CreateCellInput) (client.StartWorkflowOptions, error) {
+	func(input CreateCellInput) client.StartWorkflowOptions {
 		options := client.StartWorkflowOptions{
 			ID: "provision-cell-" + input.CellID,
 		}
-		return options, nil
+		return options
 	},
 )
 
@@ -47,23 +47,23 @@ var StartWorkflowOp2 = NewWorkflowRunOperation(StartWorkflowOpRef, MyCalleeWorkf
 // ----------------------------------------------------------
 
 var StartWorkflowOp3 = NewWorkflowRunOperationWithMapping[CreateCellInput, *CreateCellOutput]("provision-cell", MyCalleeWorkflowDifferentTypes,
-	func(ctx context.Context, input CreateCellInput) (client.StartWorkflowOptions, CreateCellWorkflowInput, error) {
+	func(input CreateCellInput) (client.StartWorkflowOptions, CreateCellWorkflowInput) {
 		options := client.StartWorkflowOptions{
 			ID: "provision-cell-" + input.CellID,
 		}
 		wfInput := CreateCellWorkflowInput{ID: input.CellID}
-		return options, wfInput, nil
+		return options, wfInput
 	},
 	//TODO: add output mapping, which will also give us the types for inference, for use with a string op name "provision-cell" as the 1st arg
 )
 
 var StartWorkflowOp = NewWorkflowRunOperationWithMapping(StartWorkflowOpRef, MyCalleeWorkflowDifferentTypes,
-	func(ctx context.Context, input CreateCellInput) (client.StartWorkflowOptions, CreateCellWorkflowInput, error) {
+	func(input CreateCellInput) (client.StartWorkflowOptions, CreateCellWorkflowInput) {
 		options := client.StartWorkflowOptions{
 			ID: "provision-cell-" + input.CellID,
 		}
 		wfInput := CreateCellWorkflowInput{ID: input.CellID}
-		return options, wfInput, nil
+		return options, wfInput
 	},
 	//TODO: add output mapping, which will also give us the types for inference, for use with a string op name "provision-cell" as the 1st arg
 )

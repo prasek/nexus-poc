@@ -18,13 +18,12 @@ func (s OperationRef[I, O]) inferType(I, O) {} //nolint:unused
 func NewWorkflowRunOperation[I, O any](
 	name OperationRef[I, O],
 	workflow func(workflow.Context, I) (O, error),
-	f func(context.Context, I) (client.StartWorkflowOptions, error),
+	f func(I) client.StartWorkflowOptions,
 ) *nexus.AsyncOperation[I, O, O] {
 	fmt.Printf("Name: %s", string(name))
 	return temporalnexus.NewWorkflowRunOperation[I, O](string(name), temporalnexus.WorkflowRunOptions[I, O]{
 		Start: func(ctx context.Context, c client.Client, input I) (temporalnexus.WorkflowHandle[O], error) {
-			options, _ := f(ctx, input)
-			fmt.Printf("Options:\n%+v\n", options)
+			options := f(input)
 			return temporalnexus.StartWorkflow(ctx, c, options, workflow, input)
 		},
 	})
@@ -33,11 +32,11 @@ func NewWorkflowRunOperation[I, O any](
 func NewWorkflowRunOperationWithMapping[I, O, WFI, WFO any](
 	name OperationRef[I, O],
 	workflow func(workflow.Context, WFI) (WFO, error),
-	f func(context.Context, I) (client.StartWorkflowOptions, WFI, error),
+	f func(I) (client.StartWorkflowOptions, WFI),
 ) *nexus.AsyncOperation[I, O, O] {
 	return temporalnexus.NewWorkflowRunOperation[I, O](string(name), temporalnexus.WorkflowRunOptions[I, O]{
 		Start: func(ctx context.Context, c client.Client, input I) (temporalnexus.WorkflowHandle[O], error) {
-			options, wfInput, _ := f(ctx, input)
+			options, wfInput := f(input)
 			return temporalnexus.StartWorkflow(ctx, c, options, workflow, wfInput)
 		},
 	})
