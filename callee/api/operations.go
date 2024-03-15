@@ -2,11 +2,9 @@ package api
 
 import (
 	"context"
-	"time"
 
 	"github.com/nexus-rpc/sdk-go/nexus"
 	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/temporalnexus"
 )
 
@@ -21,29 +19,54 @@ type CreateCellOutput struct {
 	CellID string
 }
 
-var StartWorkflowOpRef = NewOperationReference[CreateCellInput, *CreateCellOutput]("provision-cell")
-
-var StartWorkflowOp = NewWorkflowRunOperation(
-	StartWorkflowOpRef,
-	MyCalleeWorkflow,
-	func(input CreateCellInput) (CreateCellWorkflowInput, client.StartWorkflowOptions) {
-		wfInput := CreateCellWorkflowInput{
-			ID: input.CellID,
-		}
-
+var StartWorkflowOp1 = NewWorkflowRunOperation("provision-cell", MyCalleeWorkflow,
+	func(ctx context.Context, input CreateCellInput) (client.StartWorkflowOptions, error) {
 		options := client.StartWorkflowOptions{
-			ID:                       "provision-cell-" + input.CellID,
-			WorkflowExecutionTimeout: time.Second * 10,
-			RetryPolicy: &temporal.RetryPolicy{
-				InitialInterval:    time.Second * 1,
-				BackoffCoefficient: 2,
-				MaximumInterval:    time.Second * 60,
-			},
+			ID: "provision-cell-" + input.CellID,
 		}
+		return options, nil
+	},
+)
 
-		return wfInput, options
+// ----------------------------------------------------------
+// or optionally with an op ref that can be used separately
+// ----------------------------------------------------------
+var StartWorkflowOpRef = OperationRef[CreateCellInput, *CreateCellOutput]("provision-cell")
 
-	})
+var StartWorkflowOp2 = NewWorkflowRunOperation(StartWorkflowOpRef, MyCalleeWorkflow,
+	func(ctx context.Context, input CreateCellInput) (client.StartWorkflowOptions, error) {
+		options := client.StartWorkflowOptions{
+			ID: "provision-cell-" + input.CellID,
+		}
+		return options, nil
+	},
+)
+
+// ----------------------------------------------------------
+// or optionally with mapping workflow IO types to op IO types
+// ----------------------------------------------------------
+
+var StartWorkflowOp3 = NewWorkflowRunOperationWithMapping[CreateCellInput, *CreateCellOutput]("provision-cell", MyCalleeWorkflowDifferentTypes,
+	func(ctx context.Context, input CreateCellInput) (client.StartWorkflowOptions, CreateCellWorkflowInput, error) {
+		options := client.StartWorkflowOptions{
+			ID: "provision-cell-" + input.CellID,
+		}
+		wfInput := CreateCellWorkflowInput{ID: input.CellID}
+		return options, wfInput, nil
+	},
+	//TODO: add output mapping, which will also give us the types for inference, for use with a string op name "provision-cell" as the 1st arg
+)
+
+var StartWorkflowOp = NewWorkflowRunOperationWithMapping(StartWorkflowOpRef, MyCalleeWorkflowDifferentTypes,
+	func(ctx context.Context, input CreateCellInput) (client.StartWorkflowOptions, CreateCellWorkflowInput, error) {
+		options := client.StartWorkflowOptions{
+			ID: "provision-cell-" + input.CellID,
+		}
+		wfInput := CreateCellWorkflowInput{ID: input.CellID}
+		return options, wfInput, nil
+	},
+	//TODO: add output mapping, which will also give us the types for inference, for use with a string op name "provision-cell" as the 1st arg
+)
 
 var QueryOp = temporalnexus.NewSyncOperation("get-cell-status", func(ctx context.Context, c client.Client, cellID string) (string, error) {
 	payload, err := c.QueryWorkflow(ctx, "provision-cell-"+cellID, "", "get-cell-status")
@@ -58,38 +81,3 @@ var SignalOp = temporalnexus.NewSyncOperation("resume-provisioning", func(ctx co
 	// TODO: signal request should use Nexus request ID
 	return nil, c.SignalWorkflow(ctx, "provision-cell-"+cellID, "", "resume", nil)
 })
-
-/*
-// note: in this POC the Nexus op output must match the workflow output - in the future we'll allow mapping the workflow output
-var StartWorkflowOp2 = temporalnexus.NewWorkflowRunOperation("provision-cell", temporalnexus.WorkflowRunOptions[CreateCellInput, *CreateCellOutput]{
-	Start: func(ctx context.Context, c client.Client, input CreateCellInput) (temporalnexus.WorkflowHandle[*CreateCellOutput], error) {
-		wfInput := CreateCellWorkflowInput{
-			ID: input.CellID,
-		}
-
-		return temporalnexus.StartWorkflow(ctx, c, client.StartWorkflowOptions{
-			ID:                       "provision-cell-" + input.CellID,
-			WorkflowExecutionTimeout: time.Second * 10,
-			RetryPolicy: &temporal.RetryPolicy{
-				InitialInterval:    time.Second * 1,
-				BackoffCoefficient: 2,
-				MaximumInterval:    time.Second * 60,
-			},
-		}, MyCalleeWorkflow, wfInput)
-	},
-})
-*/
-
-/*
-var StartSimpleWorkflowOp = temporalnexus.NewWorkflowRunOperation("provision-cell", temporalnexus.WorkflowRunOptions[CreateCellInput, *CreateCellOutput]{
-	//if using the simpler `Workflow` option, the I,O of the nexus op and the workflow must match
-	//cannot use (func(ctx context.Context, c client.Client, input CreateCellInput) (temporalnexus.WorkflowHandle[*CreateCellOutput], error) literal) (value of type func(ctx context.Context, c client.Client, input CreateCellInput) (temporalnexus.WorkflowHandle[*CreateCellOutput], error)) as func(context.Context, client.Client, CreateCellWorkflowInput) (temporalnexus.WorkflowHandle[*CreateCellOutput], error) value in struct literalcompilerIncompatibleAssign
-	Workflow: MyCalleeWorkflow,
-
-	GetOptions: func(ctx context.Context, input CreateCellInput) (client.StartWorkflowOptions, error) {
-		return client.StartWorkflowOptions{
-			ID: "provision-cell-" + input.CellID,
-		}, nil
-	},
-})
-*/

@@ -31,6 +31,7 @@ func main() {
 		},
 	})
 	w.RegisterWorkflow(api.MyCalleeWorkflow)
+	w.RegisterWorkflow(api.MyCalleeWorkflowDifferentTypes)
 	err := w.Run(worker.InterruptCh())
 	if err != nil {
 		log.Fatalln("unable to start callee worker")
